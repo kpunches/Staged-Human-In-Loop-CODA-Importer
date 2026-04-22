@@ -1,6 +1,5 @@
-export { auth, signIn, signOut } from "@/app/api/auth/[...nextauth]/route"
+export { auth, signIn, signOut } from "@/lib/auth/config"
 
-// Augment the next-auth Session type so TypeScript knows about our custom fields
 import "next-auth"
 import type { UserRole } from "@prisma/client"
 
