@@ -90,7 +90,7 @@ CREATE TABLE "FieldApproval" (
 CREATE TABLE "AuditLog" (
     "id" TEXT NOT NULL,
     "reviewId" TEXT NOT NULL,
-    "userId" TEXT TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
     "action" TEXT NOT NULL,
     "detail" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,

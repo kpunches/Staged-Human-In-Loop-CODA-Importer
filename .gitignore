@@ -13,7 +13,7 @@ out/
 .env.*.local
 
 # Prisma
-prisma/migrations/*/migration.sql
+# (migration SQL files are intentionally tracked)
 
 # Build
 dist/
