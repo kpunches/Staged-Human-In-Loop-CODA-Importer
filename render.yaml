@@ -44,4 +44,4 @@ databases:
   - name: wgu-staging-db
     databaseName: wgu_staging
     region: oregon
-    plan: starter
+    plan: free
