@@ -7,9 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "db:migrate": "prisma migrate deploy",
-    "db:generate": "prisma generate",
-    "db:studio": "prisma studio",
+    "db:migrate": "npx prisma migrate deploy",
+    "db:generate": "npx prisma generate",
+    "db:studio": "npx prisma studio",
     "db:seed": "node prisma/seed.js"
   },
   "dependencies": {
@@ -31,6 +31,7 @@
     "next": "^15.1.4",
     "next-auth": "^5.0.0-beta.25",
     "nodemailer": "^7.0.7",
+    "prisma": "^6.3.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "resend": "^4.0.1",
