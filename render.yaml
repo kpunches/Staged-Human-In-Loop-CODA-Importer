@@ -11,10 +11,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: NEXTAUTH_URL
-        fromService:
-          type: web
-          name: wgu-staging-app
-          property: host
+        value: https://wgu-staging-app.onrender.com
       - key: NEXTAUTH_SECRET
         generateValue: true
       - key: DATABASE_URL
