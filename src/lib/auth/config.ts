@@ -7,6 +7,7 @@ import { sendMagicLinkEmail } from "@/lib/email"
 const ALLOWED_DOMAIN = process.env.ALLOWED_EMAIL_DOMAIN ?? "wgu.edu"
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  trustHost: true,
   adapter: PrismaAdapter(prisma),
   providers: [
     Resend({
@@ -35,10 +36,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         where: { id: user.id },
         select: { role: true, tenantId: true, tenant: { select: { slug: true, name: true } } },
       })
-      if (dbUser) {
+      if (dbUser?.tenant) {
         session.user.role = dbUser.role
         session.user.tenantId = dbUser.tenantId
         session.user.tenant = dbUser.tenant
+      } else {
+        // Fallback so the session is still valid while tenant is being assigned
+        session.user.role = "ID"
+        session.user.tenantId = ""
+        session.user.tenant = { slug: "default", name: "WGU" }
       }
       return session
     },
