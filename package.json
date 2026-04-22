@@ -7,9 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "db:migrate": "node_modules/.bin/prisma migrate deploy",
-    "db:generate": "node_modules/.bin/prisma generate",
-    "db:studio": "node_modules/.bin/prisma studio",
+    "db:migrate": "prisma migrate deploy",
+    "db:generate": "prisma generate",
+    "db:studio": "prisma studio",
     "db:seed": "node prisma/seed.js"
   },
   "dependencies": {
