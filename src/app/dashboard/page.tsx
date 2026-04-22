@@ -1,7 +1,6 @@
-import { requireSession } from "@/lib/session"
-import { redirect } from "next/navigation"
-import { prisma } from "@/lib/db"
 import Link from "next/link"
+import { requireSession } from "@/lib/session"
+import { prisma } from "@/lib/db"
 
 const STATUS_STYLES = {
   PENDING:        { bg: "#fef9c3", color: "#854d0e", label: "Pending" },
@@ -43,12 +42,14 @@ export default async function DashboardPage() {
             {session.user.tenant.name} · {session.user.role} · {session.user.email}
           </p>
         </div>
-        <Link href="/review/new" style={{
-          padding: "10px 20px", borderRadius: "8px", background: "#002855",
-          color: "#fff", fontSize: "14px", fontWeight: "600", textDecoration: "none",
-        }}>
-          + New review
-        </Link>
+        <div style={{ textAlign: "right" }}>
+          <div style={{
+            padding: "10px 20px", borderRadius: "8px", background: "#f0f7ff",
+            border: "1px solid #b5d4f4", color: "#185FA5", fontSize: "13px",
+          }}>
+            Reviews are created by the Claude import pipeline
+          </div>
+        </div>
       </div>
 
       {reviews.length === 0 ? (
