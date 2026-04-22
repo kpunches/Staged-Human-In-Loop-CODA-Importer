@@ -1,4 +1,4 @@
-export { auth, signIn, signOut, handlers } from "@/app/api/auth/[...nextauth]/route"
+export { auth, signIn, signOut } from "@/app/api/auth/[...nextauth]/route"
 
 // Augment the next-auth Session type so TypeScript knows about our custom fields
 import "next-auth"

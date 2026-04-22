@@ -6,7 +6,7 @@ import { sendMagicLinkEmail } from "@/lib/email"
 
 const ALLOWED_DOMAIN = process.env.ALLOWED_EMAIL_DOMAIN ?? "wgu.edu"
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
   providers: [
     Resend({
@@ -66,3 +66,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
 })
+
+export { auth, signIn, signOut }
+export const { GET, POST } = handlers
