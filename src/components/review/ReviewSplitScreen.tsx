@@ -231,7 +231,7 @@ export function ReviewSplitScreen({ review, sourceUrl, extractionUrl, currentUse
                             {field.field_name}
                           </div>
                           <div style={{ fontSize: "14px", color: "#1a1a1a", lineHeight: "1.5", wordBreak: "break-word" }}>
-                            {fs?.editedValue ?? field.raw_text || <span style={{ color: "#ccc" }}>—</span>}
+                            {(fs?.editedValue ?? field.raw_text) || <span style={{ color: "#ccc" }}>—</span>}
                           </div>
                           {fs?.note && (
                             <div style={{ marginTop: "6px", fontSize: "12px", color: "#dc2626", background: "#fef2f2", padding: "4px 8px", borderRadius: "4px" }}>
