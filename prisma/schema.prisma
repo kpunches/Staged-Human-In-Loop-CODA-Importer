@@ -1,0 +1,169 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Identity ─────────────────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  role          UserRole  @default(ID)
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  sessions      Session[]
+  reviews       Review[]  @relation("ReviewedBy")
+  approvals     FieldApproval[]
+  auditLogs     AuditLog[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([email])
+}
+
+enum UserRole {
+  ID    // Instructional Designer — approves ES rows, LOs, section hierarchy
+  EPD   // Educational Program Director — approves competencies, program fields
+  AD    // Academic Director — final sign-off, triggers Coda write
+  ADMIN // App admin — can manage users and tenants
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── Multitenancy ─────────────────────────────────────────────────────────────
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String   // e.g. "College of Health Professions"
+  slug      String   @unique // e.g. "chp" — used in URLs
+  users     User[]
+  reviews   Review[]
+  createdAt DateTime @default(now())
+}
+
+// ─── Reviews (the staging unit) ──────────────────────────────────────────────
+
+model Review {
+  id              String        @id @default(cuid())
+  tenantId        String
+  tenant          Tenant        @relation(fields: [tenantId], references: [id])
+
+  // Coda context
+  docId           String        // e.g. "4YIajnJqvo"
+  programCode     String        // e.g. "FNP"
+  courseCode      String?       // e.g. "D944" — null for V&S / PDOW
+  workflowType    WorkflowType
+
+  // File references (R2 keys)
+  sourceFileKey   String        // original uploaded file
+  extractionKey   String        // .extraction.json
+  sourceFileName  String        // display name
+
+  // Review state
+  status          ReviewStatus  @default(PENDING)
+  submittedBy     String        // user id
+  submitter       User          @relation("ReviewedBy", fields: [submittedBy], references: [id])
+  approvedAt      DateTime?
+  approvedBy      String?       // user id of final AD approver
+  codaWrittenAt   DateTime?
+
+  // human_review block written into extraction JSON on approve
+  reviewerName    String?
+  reviewerEmail   String?
+  docHash         String?       // sha256 of source file
+
+  fieldApprovals  FieldApproval[]
+  auditLogs       AuditLog[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([workflowType])
+}
+
+enum WorkflowType {
+  CCW
+  SSD
+  VS       // V&S / PDVS
+  SCOPE_TABLE
+  LR
+  PDOW
+}
+
+enum ReviewStatus {
+  PENDING       // extraction done, awaiting review
+  IN_REVIEW     // reviewer has opened it
+  CHANGES_NEEDED // reviewer flagged issues
+  APPROVED      // AD signed off, ready to write
+  WRITTEN       // successfully written to Coda
+  FAILED        // Coda write failed
+}
+
+// ─── Field-level approvals ────────────────────────────────────────────────────
+
+model FieldApproval {
+  id          String            @id @default(cuid())
+  reviewId    String
+  review      Review            @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User              @relation(fields: [userId], references: [id])
+
+  // matches record_id + field_name in extraction JSON
+  recordId    String
+  fieldName   String
+
+  status      FieldStatus       @default(PENDING)
+  note        String?           // reviewer's comment on a flag
+  editedValue String?           // if reviewer corrected the value inline
+
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@unique([reviewId, recordId, fieldName])
+  @@index([reviewId])
+}
+
+enum FieldStatus {
+  PENDING
+  APPROVED
+  FLAGGED
+  EDITED    // approved after inline edit
+}
+
+// ─── Audit log ────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  reviewId  String
+  review    Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  action    String   // e.g. "field.approved", "field.flagged", "review.approved", "coda.written"
+  detail    Json?    // arbitrary metadata
+  createdAt DateTime @default(now())
+
+  @@index([reviewId])
+}

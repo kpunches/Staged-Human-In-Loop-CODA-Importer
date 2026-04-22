@@ -1,0 +1,47 @@
+services:
+  - type: web
+    name: wgu-staging-app
+    runtime: node
+    region: oregon
+    plan: starter
+    buildCommand: npm install && npm run db:generate && npm run build
+    startCommand: npm run db:migrate && npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXTAUTH_URL
+        fromService:
+          type: web
+          name: wgu-staging-app
+          property: host
+      - key: NEXTAUTH_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: wgu-staging-db
+          property: connectionString
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_NAME
+        sync: false
+      - key: R2_PUBLIC_URL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ALLOWED_EMAIL_DOMAIN
+        value: wgu.edu
+
+databases:
+  - name: wgu-staging-db
+    databaseName: wgu_staging
+    region: oregon
+    plan: starter
