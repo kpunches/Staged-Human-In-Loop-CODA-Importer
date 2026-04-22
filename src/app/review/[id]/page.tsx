@@ -5,15 +5,17 @@ import { getSignedDownloadUrl } from "@/lib/storage"
 import { ReviewSplitScreen } from "@/components/review/ReviewSplitScreen"
 
 interface ReviewPageProps {
-  params: { id: string }
+  params: Promise<{ id: string }>
 }
 
 export default async function ReviewPage({ params }: ReviewPageProps) {
+  const { id } = await params
+
   const session = await auth()
   if (!session) redirect("/auth/signin")
 
   const review = await prisma.review.findFirst({
-    where: { id: params.id, tenantId: session.user.tenantId },
+    where: { id, tenantId: session.user.tenantId },
     include: {
       submitter: { select: { name: true, email: true } },
       fieldApprovals: true,
@@ -27,7 +29,6 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
 
   if (!review) notFound()
 
-  // Generate 15-minute signed URLs for both files
   const [sourceUrl, extractionUrl] = await Promise.all([
     getSignedDownloadUrl(review.sourceFileKey),
     getSignedDownloadUrl(review.extractionKey),
