@@ -1,12 +1,49 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
-import type { Review, FieldApproval, AuditLog, User, UserRole } from "@prisma/client"
+import { useState, useEffect } from "react"
 
-type ReviewWithRelations = Review & {
+type UserRole = "ID" | "EPD" | "AD" | "ADMIN"
+type FieldStatusValue = "PENDING" | "APPROVED" | "FLAGGED" | "EDITED"
+type ReviewStatusValue = "PENDING" | "IN_REVIEW" | "CHANGES_NEEDED" | "APPROVED" | "WRITTEN" | "FAILED"
+type WorkflowTypeValue = "CCW" | "SSD" | "VS" | "SCOPE_TABLE" | "LR" | "PDOW"
+
+interface FieldApproval {
+  id: string
+  reviewId: string
+  recordId: string
+  fieldName: string
+  status: FieldStatusValue
+  note: string | null
+  editedValue: string | null
+}
+
+interface AuditLogUser {
+  name: string | null
+  email: string
+}
+
+interface AuditLog {
+  id: string
+  reviewId: string
+  userId: string
+  action: string
+  createdAt: Date
+  user: AuditLogUser
+}
+
+interface ReviewWithRelations {
+  id: string
+  sourceFileName: string
+  workflowType: WorkflowTypeValue
+  status: ReviewStatusValue
+  docId: string
+  programCode: string
+  courseCode: string | null
+  tenantId: string
+  docHash: string | null
   submitter: { name: string | null; email: string }
   fieldApprovals: FieldApproval[]
-  auditLogs: (AuditLog & { user: { name: string | null; email: string } })[]
+  auditLogs: AuditLog[]
 }
 
 interface ExtractionRecord {

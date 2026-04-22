@@ -2,25 +2,24 @@ import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
 import Link from "next/link"
-import type { ReviewStatus, WorkflowType } from "@prisma/client"
 
-const STATUS_STYLES: Record<ReviewStatus, { bg: string; color: string; label: string }> = {
+const STATUS_STYLES = {
   PENDING:        { bg: "#fef9c3", color: "#854d0e", label: "Pending" },
   IN_REVIEW:      { bg: "#dbeafe", color: "#1e40af", label: "In review" },
   CHANGES_NEEDED: { bg: "#ffedd5", color: "#9a3412", label: "Changes needed" },
   APPROVED:       { bg: "#dcfce7", color: "#166534", label: "Approved" },
   WRITTEN:        { bg: "#f0fdf4", color: "#15803d", label: "Written to Coda" },
   FAILED:         { bg: "#fee2e2", color: "#991b1b", label: "Coda write failed" },
-}
+} as const
 
-const WORKFLOW_LABELS: Record<WorkflowType, string> = {
+const WORKFLOW_LABELS = {
   CCW: "CCW",
   SSD: "SSD",
   VS: "V&S",
   SCOPE_TABLE: "Scope Table",
   LR: "Learning Resources",
   PDOW: "PDOW Mapping",
-}
+} as const
 
 export default async function DashboardPage() {
   const session = await auth()
@@ -35,7 +34,6 @@ export default async function DashboardPage() {
 
   return (
     <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "40px 24px", fontFamily: "'Helvetica Neue', Arial, sans-serif" }}>
-      {/* Page header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "32px" }}>
         <div>
           <h1 style={{ margin: "0 0 6px", fontSize: "24px", fontWeight: "700", color: "#1a1a1a", letterSpacing: "-0.5px" }}>
@@ -46,29 +44,20 @@ export default async function DashboardPage() {
           </p>
         </div>
         <Link href="/review/new" style={{
-          padding: "10px 20px",
-          borderRadius: "8px",
-          background: "#002855",
-          color: "#fff",
-          fontSize: "14px",
-          fontWeight: "600",
-          textDecoration: "none",
+          padding: "10px 20px", borderRadius: "8px", background: "#002855",
+          color: "#fff", fontSize: "14px", fontWeight: "600", textDecoration: "none",
         }}>
           + New review
         </Link>
       </div>
 
-      {/* Reviews table */}
       {reviews.length === 0 ? (
         <div style={{
-          padding: "60px",
-          textAlign: "center",
-          background: "#fafaf8",
-          borderRadius: "12px",
-          border: "1px dashed #d0cfc8",
+          padding: "60px", textAlign: "center", background: "#fafaf8",
+          borderRadius: "12px", border: "1px dashed #d0cfc8",
         }}>
           <p style={{ margin: "0 0 8px", color: "#555", fontSize: "16px" }}>No reviews yet</p>
-          <p style={{ margin: "0 0 24px", color: "#aaa", fontSize: "14px" }}>
+          <p style={{ margin: 0, color: "#aaa", fontSize: "14px" }}>
             Upload a document from Claude to create the first review for your team.
           </p>
         </div>
@@ -85,35 +74,23 @@ export default async function DashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {reviews.map((r, i) => {
-                const s = STATUS_STYLES[r.status]
+              {reviews.map((r: typeof reviews[number], i: number) => {
+                const statusKey = r.status as keyof typeof STATUS_STYLES
+                const workflowKey = r.workflowType as keyof typeof WORKFLOW_LABELS
+                const s = STATUS_STYLES[statusKey] ?? STATUS_STYLES.PENDING
                 return (
                   <tr key={r.id} style={{ borderBottom: i < reviews.length - 1 ? "1px solid #f0efe8" : "none" }}>
-                    <td style={{ padding: "14px 16px", color: "#1a1a1a", fontWeight: "500" }}>
-                      {r.sourceFileName}
-                    </td>
-                    <td style={{ padding: "14px 16px", color: "#555" }}>
-                      {WORKFLOW_LABELS[r.workflowType]}
-                    </td>
-                    <td style={{ padding: "14px 16px", color: "#555" }}>
-                      {r.courseCode ?? <span style={{ color: "#bbb" }}>—</span>}
-                    </td>
-                    <td style={{ padding: "14px 16px", color: "#555" }}>
-                      {r.submitter.name ?? r.submitter.email}
-                    </td>
+                    <td style={{ padding: "14px 16px", color: "#1a1a1a", fontWeight: "500" }}>{r.sourceFileName}</td>
+                    <td style={{ padding: "14px 16px", color: "#555" }}>{WORKFLOW_LABELS[workflowKey] ?? r.workflowType}</td>
+                    <td style={{ padding: "14px 16px", color: "#555" }}>{r.courseCode ?? <span style={{ color: "#bbb" }}>—</span>}</td>
+                    <td style={{ padding: "14px 16px", color: "#555" }}>{r.submitter.name ?? r.submitter.email}</td>
                     <td style={{ padding: "14px 16px", color: "#888", whiteSpace: "nowrap" }}>
                       {new Date(r.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </td>
                     <td style={{ padding: "14px 16px" }}>
                       <span style={{
-                        display: "inline-block",
-                        padding: "3px 10px",
-                        borderRadius: "999px",
-                        background: s.bg,
-                        color: s.color,
-                        fontSize: "12px",
-                        fontWeight: "500",
-                        whiteSpace: "nowrap",
+                        display: "inline-block", padding: "3px 10px", borderRadius: "999px",
+                        background: s.bg, color: s.color, fontSize: "12px", fontWeight: "500", whiteSpace: "nowrap",
                       }}>
                         {s.label}
                       </span>

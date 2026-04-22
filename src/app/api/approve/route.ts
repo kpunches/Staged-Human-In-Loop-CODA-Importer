@@ -9,11 +9,28 @@ const schema = z.object({ reviewId: z.string() })
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
+interface ExtractionField {
+  field_name: string
+  raw_text: string
+  value_for_coda: string
+  [key: string]: unknown
+}
+
+interface ExtractionRecord {
+  record_id: string
+  fields: ExtractionField[]
+  [key: string]: unknown
+}
+
+interface ExtractionJson {
+  records: ExtractionRecord[]
+  [key: string]: unknown
+}
+
 export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  // Only AD and ADMIN can trigger final approval
   if (session.user.role !== "AD" && session.user.role !== "ADMIN") {
     return NextResponse.json({ error: "Only Academic Directors can approve for Coda." }, { status: 403 })
   }
@@ -30,21 +47,28 @@ export async function POST(req: NextRequest) {
   })
   if (!review) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
-  // Guard: ensure no fields are flagged or pending
-  const blocked = review.fieldApprovals.filter((f) => f.status === "FLAGGED" || f.status === "PENDING")
+  interface FieldApprovalRow {
+    status: string
+    recordId: string
+    fieldName: string
+    editedValue: string | null
+  }
+
+  const approvals = review.fieldApprovals as FieldApprovalRow[]
+
+  const blocked = approvals.filter(
+    (f) => f.status === "FLAGGED" || f.status === "PENDING"
+  )
   if (blocked.length > 0) {
     return NextResponse.json({
       error: `${blocked.length} field(s) are not yet approved. Resolve all flags before approving.`,
     }, { status: 422 })
   }
 
-  // Load extraction JSON from R2
-  const extraction = await downloadJson<Record<string, unknown>>(
+  const extraction = await downloadJson<ExtractionJson>(
     extractionKey(review.tenantId, review.id)
   )
 
-  // Merge edited field values + write the human_review block
-  const approvals = review.fieldApprovals
   const editedFields = approvals
     .filter((a) => a.status === "EDITED" && a.editedValue)
     .reduce<Record<string, string>>((acc, a) => {
@@ -52,11 +76,7 @@ export async function POST(req: NextRequest) {
       return acc
     }, {})
 
-  // Patch edited values into the extraction records
-  const records = (extraction.records as Array<{
-    record_id: string
-    fields: Array<{ field_name: string; raw_text: string; value_for_coda: string }>
-  }>).map((record) => ({
+  const records = extraction.records.map((record) => ({
     ...record,
     fields: record.fields.map((field) => {
       const editedValue = editedFields[`${record.record_id}::${field.field_name}`]
@@ -80,10 +100,8 @@ export async function POST(req: NextRequest) {
     },
   }
 
-  // Save the approved extraction back to R2
   await uploadJson(extractionKey(review.tenantId, review.id), approvedExtraction)
 
-  // Update review status
   await prisma.review.update({
     where: { id: reviewId },
     data: {
@@ -102,7 +120,6 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  // Fire the Coda loader via Anthropic API (non-blocking — runs in background)
   triggerCodaLoader(review, approvedExtraction, reviewId).catch(console.error)
 
   return NextResponse.json({ ok: true })
@@ -110,7 +127,7 @@ export async function POST(req: NextRequest) {
 
 async function triggerCodaLoader(
   review: { workflowType: string; docId: string; programCode: string; courseCode: string | null },
-  extraction: Record<string, unknown>,
+  extraction: ExtractionJson,
   reviewId: string
 ) {
   const workflowPrompts: Record<string, string> = {

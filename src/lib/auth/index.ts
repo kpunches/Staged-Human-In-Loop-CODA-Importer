@@ -1,7 +1,6 @@
 export { auth, signIn, signOut } from "@/lib/auth/config"
 
 import "next-auth"
-import type { UserRole } from "@prisma/client"
 
 declare module "next-auth" {
   interface Session {
@@ -9,7 +8,7 @@ declare module "next-auth" {
       id: string
       email: string
       name?: string | null
-      role: UserRole
+      role: "ID" | "EPD" | "AD" | "ADMIN"
       tenantId: string
       tenant: {
         slug: string
