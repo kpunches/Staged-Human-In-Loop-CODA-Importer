@@ -1,25 +1,10 @@
-import { auth } from "@/lib/auth"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
-const PUBLIC_PATHS = ["/auth/signin", "/auth/verify", "/auth/error", "/api/auth", "/api/health", "/api/demo-login"]
-
-export async function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl
-
-  // Allow public paths
-  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
-    return NextResponse.next()
-  }
-
-  const session = await auth()
-
-  if (!session) {
-    const signInUrl = new URL("/auth/signin", req.url)
-    signInUrl.searchParams.set("callbackUrl", pathname)
-    return NextResponse.redirect(signInUrl)
-  }
-
+// Middleware is intentionally minimal — auth is checked at the page/route level.
+// NextAuth v5 session tokens are JWTs that can't be verified in Edge Runtime
+// without the full auth config, so we skip middleware-level auth entirely.
+export function middleware(req: NextRequest) {
   return NextResponse.next()
 }
 

@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth"
+import { requireSession } from "@/lib/session"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
 import Link from "next/link"
@@ -22,8 +22,8 @@ const WORKFLOW_LABELS = {
 } as const
 
 export default async function DashboardPage() {
-  const session = await auth()
-  if (!session) redirect("/auth/signin")
+  const session = await requireSession()
+  
 
   const reviews = await prisma.review.findMany({
     where: { tenantId: session.user.tenantId },

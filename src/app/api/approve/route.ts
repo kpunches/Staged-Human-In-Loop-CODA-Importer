@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/lib/auth"
+import { getSession } from "@/lib/session"
 import { prisma } from "@/lib/db"
 import { downloadJson, uploadJson, extractionKey } from "@/lib/storage"
 import Anthropic from "@anthropic-ai/sdk"
@@ -28,7 +28,7 @@ interface ExtractionJson {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth()
+  const session = await getSession()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   if (session.user.role !== "AD" && session.user.role !== "ADMIN") {

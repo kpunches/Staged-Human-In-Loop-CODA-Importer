@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth"
+import { requireSession } from "@/lib/session"
 import { redirect, notFound } from "next/navigation"
 import { prisma } from "@/lib/db"
 import { getSignedDownloadUrl } from "@/lib/storage"
@@ -11,8 +11,8 @@ interface ReviewPageProps {
 export default async function ReviewPage({ params }: ReviewPageProps) {
   const { id } = await params
 
-  const session = await auth()
-  if (!session) redirect("/auth/signin")
+  const session = await requireSession()
+  
 
   const review = await prisma.review.findFirst({
     where: { id, tenantId: session.user.tenantId },

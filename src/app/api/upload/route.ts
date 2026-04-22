@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/lib/auth"
+import { getSession } from "@/lib/session"
 import { validateApiToken } from "@/lib/auth/api-token"
 import { prisma } from "@/lib/db"
 import { uploadFile, uploadJson, sourceFileKey, extractionKey } from "@/lib/storage"
@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   let userId: string
   let tenantId: string
 
-  const session = await auth()
+  const session = await getSession()
   if (session) {
     userId = session.user.id
     tenantId = session.user.tenantId
