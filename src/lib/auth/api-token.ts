@@ -21,7 +21,10 @@ export async function validateApiToken(req: NextRequest): Promise<{ userId: stri
       where: { email: "pipeline@wgu.edu" },
       select: { id: true, tenantId: true },
     })
-    return pipelineUser
+    if (pipelineUser) {
+      return { userId: pipelineUser.id, tenantId: pipelineUser.tenantId }
+    }
+    return null
   }
 
   return null
