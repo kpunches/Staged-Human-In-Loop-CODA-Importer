@@ -2,7 +2,6 @@ import NextAuth from "next-auth"
 import { PrismaAdapter } from "@auth/prisma-adapter"
 import Resend from "next-auth/providers/resend"
 import { prisma } from "@/lib/db"
-import { sendMagicLinkEmail } from "@/lib/email"
 
 const ALLOWED_DOMAIN = process.env.ALLOWED_EMAIL_DOMAIN ?? "wgu.edu"
 
@@ -12,10 +11,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Resend({
       apiKey: process.env.RESEND_API_KEY,
-      from: process.env.RESEND_FROM_EMAIL,
-      sendVerificationRequest: async ({ identifier: email, url }) => {
-        await sendMagicLinkEmail({ to: email, magicLinkUrl: url })
-      },
+      from: process.env.RESEND_FROM_EMAIL ?? "onboarding@resend.dev",
+      // sendVerificationRequest is intentionally omitted here.
+      // We override it at the API route level to avoid nodemailer
+      // being bundled into the Edge Runtime via middleware.
     }),
   ],
   pages: {
@@ -41,7 +40,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.tenantId = dbUser.tenantId
         session.user.tenant = dbUser.tenant
       } else {
-        // Fallback so the session is still valid while tenant is being assigned
         session.user.role = "ID"
         session.user.tenantId = ""
         session.user.tenant = { slug: "default", name: "WGU" }
