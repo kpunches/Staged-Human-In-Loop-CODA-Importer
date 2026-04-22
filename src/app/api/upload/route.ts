@@ -67,13 +67,13 @@ export async function POST(req: NextRequest) {
   // Upload source file
   const sourceBytes = Buffer.from(await sourceFile.arrayBuffer())
   const docHash = crypto.createHash("sha256").update(sourceBytes).digest("hex")
-  const sKey = sourceFileKey(session.user.tenantId, review.id, meta.data.sourceFileName)
+  const sKey = sourceFileKey(tenantId, review.id, meta.data.sourceFileName)
   await uploadFile(sKey, sourceBytes, sourceFile.type || "application/octet-stream")
 
   // Upload extraction JSON
   const extractionBytes = await extractionFile.text()
   const extractionData = JSON.parse(extractionBytes)
-  const eKey = extractionKey(session.user.tenantId, review.id)
+  const eKey = extractionKey(tenantId, review.id)
   await uploadJson(eKey, extractionData)
 
   // Update review with actual keys and hash
