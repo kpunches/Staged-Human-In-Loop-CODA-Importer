@@ -1,21 +1,17 @@
 import type { Metadata } from "next"
-import { SessionProvider } from "next-auth/react"
-import { auth } from "@/lib/auth"
 import "./globals.css"
+import Providers from "@/components/Providers"
 
 export const metadata: Metadata = {
-  title: "WGU Document Staging",
-  description: "Review and approve document imports before they write to Coda.",
+  title: "WGU Import Staging",
+  description: "Review and approve Coda data imports",
 }
 
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const session = await auth()
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <SessionProvider session={session}>
-          {children}
-        </SessionProvider>
+        <Providers>{children}</Providers>
       </body>
     </html>
   )
