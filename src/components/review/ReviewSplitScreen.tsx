@@ -116,7 +116,7 @@ export function ReviewSplitScreen({ review, sourceUrl, extractionUrl, currentUse
       .catch(() => setToast({ msg: "Failed to load extraction data.", type: "error" }))
   }, [extractionUrl, review.fieldApprovals])
 
-  const allFields = extraction?.records.flatMap((r) =>
+  const allFields = extraction?.records?.flatMap((r) =>
     r.fields.map((f) => ({ recordId: r.record_id, field: f }))
   ) ?? []
 
