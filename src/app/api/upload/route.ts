@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createHash } from "crypto"
 import { prisma } from "@/lib/db"
-import { uploadFile, getSignedUrl, sourceFileKey, extractionKey } from "@/lib/storage"
+import { uploadFile, uploadJson, sourceFileKey, extractionKey } from "@/lib/storage"
 import { WorkflowType } from "@prisma/client"
 
 function verifyToken(req: NextRequest): boolean {
@@ -24,7 +24,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Expected multipart/form-data" }, { status: 400 })
   }
 
-  // Parse meta JSON field (what push_to_staging.py sends)
   let docId: string | null = null
   let programCode: string | null = null
   let courseCode: string | null = null
@@ -54,13 +53,13 @@ export async function POST(req: NextRequest) {
   const sourceFile =
     (body.get("sourceFile")      as File | null) ??
     (body.get("source_file")     as File | null)
-  const extractJson =
+  const extractJsonFile =
     (body.get("extractionJson")  as File | null) ??
     (body.get("extraction_json") as File | null)
 
-  if (!docId || !programCode || !workflowRaw || !sourceFile || !extractJson) {
+  if (!docId || !programCode || !workflowRaw || !sourceFile || !extractJsonFile) {
     return NextResponse.json(
-      { error: "Missing required fields", received: { docId: !!docId, programCode: !!programCode, workflowRaw: !!workflowRaw, sourceFile: !!sourceFile, extractJson: !!extractJson } },
+      { error: "Missing required fields", received: { docId: !!docId, programCode: !!programCode, workflowRaw: !!workflowRaw, sourceFile: !!sourceFile, extractJsonFile: !!extractJsonFile } },
       { status: 400 }
     )
   }
@@ -76,7 +75,7 @@ export async function POST(req: NextRequest) {
   }
 
   const sourceBuffer  = Buffer.from(await sourceFile.arrayBuffer())
-  const extractBuffer = Buffer.from(await extractJson.arrayBuffer())
+  const extractBuffer = Buffer.from(await extractJsonFile.arrayBuffer())
   const docHash       = createHash("sha256").update(sourceBuffer).digest("hex")
 
   let extractionData: unknown
@@ -90,13 +89,17 @@ export async function POST(req: NextRequest) {
     data: { tenantId: tenant.id, docId, programCode, courseCode: courseCode || null, workflowType, status: "PENDING", sourceFileKey: "pending", extractionKey: "pending", docHash },
   })
 
-  const ext     = sourceFile.name.split(".").pop() ?? "bin"
   const srcKey  = sourceFileKey(tenant.id, review.id, sourceFile.name)
   const extrKey = extractionKey(tenant.id, review.id)
 
   await uploadFile(srcKey, sourceBuffer, sourceFile.type || "application/octet-stream")
-  await uploadFile(extrKey, Buffer.from(JSON.stringify(extractionData, null, 2)), "application/json")
+  await uploadJson(extrKey, extractionData)
 
   await prisma.review.update({ where: { id: review.id }, data: { sourceFileKey: srcKey, extractionKey: extrKey } })
 
-  await
+  await prisma.auditLog.create({
+    data: { reviewId: review.id, action: "review.submitted", detail: { workflow: workflowType, program: programCode, course: courseCode, docHash } },
+  })
+
+  return NextResponse.json({ ok: true, reviewId: review.id, url: `/review/${review.id}` })
+}
