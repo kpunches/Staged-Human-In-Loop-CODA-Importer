@@ -74,6 +74,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Tenant not found: ${tenantSlug}` }, { status: 404 })
   }
 
+  // Auto-create a pipeline system user if one doesn't exist for this tenant
+  const pipelineEmail = `pipeline@${tenantSlug}.system`
+  const pipelineUser = await prisma.user.upsert({
+    where:  { email: pipelineEmail },
+    update: {},
+    create: {
+      email:    pipelineEmail,
+      name:     "Pipeline (automated)",
+      role:     "ID",
+      tenantId: tenant.id,
+    },
+  })
+
   const sourceBuffer  = Buffer.from(await sourceFile.arrayBuffer())
   const extractBuffer = Buffer.from(await extractJsonFile.arrayBuffer())
   const docHash       = createHash("sha256").update(sourceBuffer).digest("hex")
@@ -86,7 +99,19 @@ export async function POST(req: NextRequest) {
   }
 
   const review = await prisma.review.create({
-    data: { tenantId: tenant.id, docId, programCode, courseCode: courseCode || null, workflowType, status: "PENDING", sourceFileKey: "pending", extractionKey: "pending", docHash },
+    data: {
+      tenantId:       tenant.id,
+      docId,
+      programCode,
+      courseCode:     courseCode || null,
+      workflowType,
+      status:         "PENDING",
+      sourceFileKey:  "pending",
+      extractionKey:  "pending",
+      sourceFileName: sourceFile.name,
+      submittedBy:    pipelineUser.id,
+      docHash,
+    },
   })
 
   const srcKey  = sourceFileKey(tenant.id, review.id, sourceFile.name)
@@ -95,10 +120,18 @@ export async function POST(req: NextRequest) {
   await uploadFile(srcKey, sourceBuffer, sourceFile.type || "application/octet-stream")
   await uploadJson(extrKey, extractionData)
 
-  await prisma.review.update({ where: { id: review.id }, data: { sourceFileKey: srcKey, extractionKey: extrKey } })
+  await prisma.review.update({
+    where: { id: review.id },
+    data:  { sourceFileKey: srcKey, extractionKey: extrKey },
+  })
 
   await prisma.auditLog.create({
-    data: { reviewId: review.id, action: "review.submitted", detail: { workflow: workflowType, program: programCode, course: courseCode, docHash } },
+    data: {
+      reviewId: review.id,
+      userId:   pipelineUser.id,
+      action:   "review.submitted",
+      detail:   { workflow: workflowType, program: programCode, course: courseCode, docHash },
+    },
   })
 
   return NextResponse.json({ ok: true, reviewId: review.id, url: `/review/${review.id}` })
