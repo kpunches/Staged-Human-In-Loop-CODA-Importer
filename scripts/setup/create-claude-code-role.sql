@@ -19,8 +19,9 @@
 -- ║ Forbidden: this script never grants INSERT, UPDATE, DELETE, TRUNCATE,    ║
 -- ║          ALTER, DROP, CREATE, GRANT, REVOKE, or any DDL privilege.       ║
 -- ║          The role has no SUPERUSER, CREATEDB, CREATEROLE, REPLICATION,   ║
--- ║          or BYPASSRLS flags. If you find yourself reaching for any of    ║
--- ║          those, stop and reconsider — Code is not authorized to mutate.  ║
+-- ║          BYPASSRLS, or INHERIT flags. If you find yourself reaching for  ║
+-- ║          any of those, stop and reconsider — Code is not authorized to  ║
+-- ║          mutate.                                                         ║
 -- ║                                                                          ║
 -- ║ Operator setup steps:                                                    ║
 -- ║   1. Generate a strong password:                                         ║
@@ -59,6 +60,7 @@ BEGIN
            NOCREATEROLE
            NOREPLICATION
            NOBYPASSRLS
+           NOINHERIT
            PASSWORD '<REPLACE_WITH_GENERATED_PASSWORD>';
   END IF;
 END
@@ -121,7 +123,7 @@ COMMIT;
 --
 --   -- Role exists with the expected attributes:
 --   SELECT rolname, rolcanlogin, rolsuper, rolcreatedb, rolcreaterole,
---          rolreplication, rolbypassrls
+--          rolreplication, rolbypassrls, rolinherit
 --   FROM pg_roles WHERE rolname = 'claude_code';
 --
 --   -- Table-level grants:
@@ -130,5 +132,6 @@ COMMIT;
 --   WHERE grantee = 'claude_code'
 --   ORDER BY table_schema, table_name, privilege_type;
 --
--- The expected output: claude_code can LOGIN; all other rol* flags are false;
--- privilege_type is exclusively SELECT for every table_name in `public`.
+-- The expected output: claude_code can LOGIN; every other rol* flag (including
+-- rolinherit) is false; privilege_type is exclusively SELECT for every
+-- table_name in `public`.

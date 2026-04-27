@@ -10,9 +10,12 @@ complete. Code's actual database capabilities remain at the Stage 0
 (none) level until the Operator completes the Stage 1 setup steps
 (see [§8.3](#83-postgres-stage-1)).
 
-**Last revised:** 2026-04-27 (Stage 1 PR — adds the role-creation SQL,
-session-start hook, read-only Prisma allowlists, psql `ask` tier, and
-the Stage 1 setup procedure under §8.3. Earlier same-day revision:
+**Last revised:** 2026-04-27 (Stage 1 PR review revision — added
+`NOINHERIT` to the role definition; added `SHOW`-based verification
+commands and a service-restart callout to the §8.3 setup procedure.
+Earlier same-day revision: Stage 1 PR initial commit — role-creation
+SQL, session-start hook, read-only Prisma allowlists, psql `ask`
+tier, and the Stage 1 setup procedure under §8.3. Earliest revision:
 Stage 0 review feedback on §4 Stage 1 row, §7 Layer 1 ordering, §8.3
 audit infrastructure, and §8.5 transcript durability.)
 
@@ -357,6 +360,14 @@ has been applied, but before the Stage 1 gate is declared met.
      UI label varies by Render plan). Render's paid plans typically
      include `pg_stat_statements` in `shared_preload_libraries` by
      default; the free plan may not expose this control at all.
+   - Verify from the database side:
+     ```sh
+     psql "$MASTER_DATABASE_URL" -c "SHOW shared_preload_libraries;"
+     ```
+     `pg_stat_statements` must appear in the returned comma-separated
+     list. If it does not, step 2 will fail with an error like
+     `extension "pg_stat_statements" is not allowed because library is
+     not loaded`.
    - If the parameter is not configurable on the current plan, skip to
      step 5 and document the gap.
 
@@ -374,16 +385,35 @@ has been applied, but before the Stage 1 gate is declared met.
      ```
      should succeed (the count starts at 0 or low).
 
+> **Note for steps 3 and 4 verifications.** Some Render Postgres plans
+> require a service restart for `log_*` parameter changes to take
+> effect. If `SHOW` returns the old value immediately after toggling
+> the dashboard setting, restart the database service from the Render
+> dashboard and re-run the verification.
+
 3. **Enable connection-lifecycle logging.** This is the minimum useful
    audit baseline and is much lower volume than statement logging.
    - Render dashboard → `wgu-staging-db` → settings → set
-     `log_connections = on` and `log_disconnections = on`. Render may
-     require a service restart for these to take effect.
+     `log_connections = on` and `log_disconnections = on`.
+   - Verify both took effect:
+     ```sh
+     psql "$MASTER_DATABASE_URL" -c "SHOW log_connections;"
+     psql "$MASTER_DATABASE_URL" -c "SHOW log_disconnections;"
+     ```
+     Both must return `on`. (See the restart note above if either
+     still returns `off`.)
 
 4. **Statement-level logging (optional, plan-dependent).** Volume is
    high; only enable if the plan exposes the parameter and the Operator
    wants every-query attribution.
-   - Set `log_statement = 'mod'` (writes only) or `'all'` (everything).
+   - Render dashboard → `wgu-staging-db` → settings → set
+     `log_statement = 'mod'` (writes only) or `'all'` (everything).
+   - Verify:
+     ```sh
+     psql "$MASTER_DATABASE_URL" -c "SHOW log_statement;"
+     ```
+     Must return `mod` or `all` to match the dashboard setting. (See
+     the restart note above if it still returns `none`.)
 
 5. **Record the result in the Stage 1 PR description.** Include:
    - Which of the three audit levels above were enabled.
