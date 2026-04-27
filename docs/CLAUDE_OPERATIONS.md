@@ -8,7 +8,9 @@ here, Claude Code should not perform it.
 **Status:** Stage 0 of 6 (governance foundation). No infrastructure access has
 been granted yet. See [Rollout status](#rollout-status) below.
 
-**Last revised:** 2026-04-27 (Stage 0 initial commit).
+**Last revised:** 2026-04-27 (Stage 0 initial commit; revised same day for
+review feedback on §4 Stage 1 row, §7 Layer 1 ordering, §8.3 audit
+infrastructure, and §8.5 transcript durability).
 
 ---
 
@@ -73,7 +75,7 @@ empty. Subsequent stages populate them per the matrix in
 | Stage | Title | State | What lands |
 |---|---|---|---|
 | 0 | Governance foundation | **active** | This document; empty `.claude/settings.json` skeleton. No access granted. |
-| 1 | Database read access | not started | `claude_code` Postgres role (read-only); session-start hook; allowlists for read-only `psql` and `prisma` commands. |
+| 1 | Database read access | not started | `claude_code` Postgres role (read-only); session-start hook; allowlists for read-only `psql` and `prisma` commands; audit configuration check — Operator verifies which of `pg_stat_statements`, `log_statement`, `log_connections` are configurable on the current Render plan and enables the highest-resolution audit available, recording the result in the Stage 1 PR description. See [§8.3](#83-postgres-stage-1). |
 | 2 | Demo-login cleanup migration | not started | The previously-paused Commit C; runs against production using **master** credentials, not the `claude_code` role. |
 | 3 | Migration preparation workflow | not started | `ask`-tier entries for migration-related Prisma commands; `scripts/dry-run-migration.sh` helper; "Code prepares, human applies" formalized. |
 | 4 | Render MCP — research and vet | not started | `docs/RENDER_MCP_EVALUATION.md` only. No MCP configured. |
@@ -180,16 +182,46 @@ many as the situation warrants; for a true emergency, run all of them.
 
 ### Layer 1 — Database access (Stage 1+)
 
+The right step ordering depends on the scenario. The two named scenarios
+differ in whether the credential must die immediately (compromise) or
+whether a clean shutdown is acceptable (planned pause).
+
+#### Scenario A — active compromise
+
+Use when there is a suspected key leak, ongoing unauthorized use, a
+hostile session, or any reason to believe a third party may currently
+hold a working credential. The credential is invalidated **first**;
+every other step is secondary.
+
+1. As master, run
+   `REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM claude_code;`
+   followed by `DROP USER claude_code;`.
+   - Effect: every connection currently open under that role fails on
+     its next query, and no new connections can be opened. This is the
+     hard stop; do this first regardless of who else might be holding
+     the credential.
+2. Rotate the master password per [6.1](#61-postgres-master-password).
+   Defense in depth in case the leak extends beyond the `claude_code`
+   role (for example, if the master credential itself is suspected).
+3. Remove `DATABASE_URL` from Claude Code project secrets to prevent
+   future sessions from receiving the (now-dead) credential and to
+   eliminate a stale-config foot-gun later.
+
+#### Scenario B — routine pause
+
+Use when there is no suspected breach: planned maintenance, a
+deliberate stand-down between stages, or a session ending naturally.
+Cleaner shutdown order — secrets first, then the role.
+
 1. Remove `DATABASE_URL` from Claude Code project secrets.
    - Effect: future sessions cannot connect.
-   - Caveat: an in-flight session retains the env var it was started with
-     until that session ends.
-2. As master, `REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM claude_code;`
+   - Caveat: an in-flight session retains the env var it was started
+     with until that session ends.
+2. As master, run
+   `REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM claude_code;`
    followed by `DROP USER claude_code;`.
-   - Effect: every session, including in-flight ones, fails on the next
-     query.
-3. Rotate the master password per [6.1](#61-postgres-master-password) as
-   belt-and-suspenders.
+3. (Optional) rotate the master password per
+   [6.1](#61-postgres-master-password).
 
 ### Layer 2 — Render API access (Stage 5+)
 
@@ -238,12 +270,50 @@ and on whose authority.
 
 ### 8.3 Postgres (Stage 1+)
 
-- Reads as `claude_code` are distinguishable from application reads
-  (which use the master role) by username in `pg_stat_activity` /
-  `pg_stat_statements` / log lines.
-- Mutations to production are made by the Operator using master
-  credentials, not by Code. They appear in Render's database activity
-  with the master role attribution.
+What Postgres can attribute to the `claude_code` role depends on which
+audit infrastructure is enabled on the database. Render's managed
+Postgres does not enable any of the high-resolution options by default;
+configuring them is a Stage 1 deliverable (see [§4](#4-rollout-status)).
+
+**Always available (no configuration required):**
+
+- `pg_stat_activity` shows currently-connected sessions with `usename`.
+  Useful for spotting Code-attributed connections in real time, not for
+  historical audit.
+- Render's database "Logs" tab in the dashboard captures connection
+  events and errors. Coverage of individual queries depends on
+  server-side settings (see below).
+
+**Requires the `pg_stat_statements` extension:**
+
+- Aggregate per-query statistics, attributed by `userid` (which maps to
+  the role), accumulated since the extension was loaded. Enabled with
+  `CREATE EXTENSION pg_stat_statements;` once `shared_preload_libraries`
+  includes it. Render exposes this on most paid plans; on the free plan,
+  availability should be verified before relying on it.
+
+**Requires server-side logging configuration:**
+
+- Statement-level logging — every query, with role attribution — needs
+  `log_statement = 'all'` (or `'mod'` for writes only). Volume is high.
+  Render allows this via plan-level controls; what is configurable
+  depends on the current plan.
+- Connection lifecycle logging — `log_connections = on` and
+  `log_disconnections = on` — attributes session opens and closes to
+  roles. Volume is much lower than statement logging and is the
+  minimum useful baseline.
+
+**Stage 1 action (the Operator does this):** as part of the Stage 1
+setup, the Operator determines what is configurable on the current
+Render plan and enables the highest-resolution audit available, then
+records the result in the Stage 1 PR description. If the free plan does
+not support an adequate audit baseline, that becomes a documented gap
+and a reason to either upgrade the plan or accept the limitation
+explicitly.
+
+**Mutations:** changes to production are made by the Operator using
+master credentials, not by Code. They appear in whatever audit data the
+database is configured to capture, attributed to the master role.
 
 ### 8.4 Render (Stage 5+)
 
@@ -253,9 +323,30 @@ and on whose authority.
 
 ### 8.5 Claude Code session transcripts
 
-- Each session URL is a durable record of the conversation, tool calls,
-  and outputs. The Operator should treat the URL list as part of the
-  audit story for any disputed action.
+Session URLs (`https://claude.ai/code/session_<id>`) are accessible to
+the Operator as the Anthropic account holder. They are **not** accessible
+to third-party auditors, and Anthropic provides no documented retention
+guarantee for them. They are not portable evidence and they are not
+under the Operator's direct control.
+
+Treat session transcripts as a **supplementary** audit record only. The
+primary audit evidence for any Code-initiated action lives in the
+systems documented above:
+
+- [§8.1 Git](#81-git) — commit content, authorship, and timing.
+- [§8.2 GitHub](#82-github) — branch, PR, push, and comment activity.
+- [§8.3 Postgres](#83-postgres-stage-1) — query and connection
+  attribution, subject to the audit configuration enabled in Stage 1.
+- [§8.4 Render](#84-render-stage-5) — deploys, env-var changes, and
+  service-level admin actions, once Stage 5 lands.
+
+For any compliance-critical action, the audit story must be complete
+**without** the session URL. If you cannot reconstruct what happened
+from the systems in 8.1–8.4 alone, the audit story is incomplete and
+needs to be strengthened before that action class is repeated. The
+session transcript may add useful context — _why_ Code took an action,
+_what_ the conversation looked like — but it should not be the sole
+evidence for anything that matters.
 
 ---
 
