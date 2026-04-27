@@ -1,5 +1,6 @@
 "use client"
 
+import { signIn } from "next-auth/react"
 import { useState } from "react"
 
 export default function SignInPage() {
@@ -19,21 +20,13 @@ export default function SignInPage() {
 
     setLoading(true)
     try {
-      const res = await fetch("/api/demo-login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      })
-      if (res.ok) {
-        window.location.href = "/dashboard"
-      } else {
-        const data = await res.json()
-        setError(data.error ?? "Sign in failed. Please try again.")
-      }
+      // NextAuth sends the magic-link email and redirects to the configured
+      // verifyRequest page (/auth/verify) on success, or /auth/error on failure.
+      await signIn("resend", { email, callbackUrl: "/dashboard" })
     } catch {
       setError("Something went wrong. Please try again.")
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   return (
