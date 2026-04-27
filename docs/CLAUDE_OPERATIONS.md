@@ -1,0 +1,274 @@
+# Claude Code Operations
+
+Governance document for what Claude Code is allowed to do against this
+repository's infrastructure (Postgres on Render, the Render platform itself,
+and GitHub). This file is the source of truth. If a behavior is not described
+here, Claude Code should not perform it.
+
+**Status:** Stage 0 of 6 (governance foundation). No infrastructure access has
+been granted yet. See [Rollout status](#rollout-status) below.
+
+**Last revised:** 2026-04-27 (Stage 0 initial commit).
+
+---
+
+## 1. Definitions
+
+- **Code** — Claude Code, the AI agent operating in sessions of this
+  repository. Singular noun; can be replaced at any time by revoking the
+  credentials and access listed in [Kill-switch](#7-kill-switch).
+- **Operator** — the human owner of this repository and its production
+  infrastructure (currently `kpunches`). The Operator owns all credentials
+  and is the only party authorized to apply changes to production state.
+- **Repo** — `kpunches/Staged-Human-In-Loop-CODA-Importer` on GitHub. Code's
+  GitHub MCP access is locked to this repo and only this repo.
+- **Master credentials** — the original master Postgres role created by Render
+  at database provisioning time. Used by the Operator only. The application
+  itself runs as the master role too (this can be hardened later).
+- **`claude_code` role** — a future scoped Postgres role with read-only
+  privileges, created in Stage 1. Does not exist yet.
+
+---
+
+## 2. Operating principles (apply to all stages)
+
+1. **Code prepares; the Operator applies.** Code writes SQL migrations, config
+   changes, and scripts. The Operator runs every command that touches
+   production state with master credentials. The same human-in-the-loop
+   principle that protects Coda writes applies to infrastructure changes.
+2. **Each stage of the rollout lands as one reviewable PR.** No bundling.
+   No work begins on stage N+1 until the Operator confirms stage N is gated
+   through.
+3. **No access is silently expanded.** New permissions only enter
+   `.claude/settings.json` as part of a stage PR that the Operator reviews
+   and merges. Any out-of-band escalation is a bug.
+4. **Deny wins.** Per Claude Code's permissions model, `deny` rules override
+   `ask` rules, which override `allow` rules. When two rules conflict, the
+   one that prohibits action is honored.
+5. **Sessions are stateless.** Anything Code learns in a session ends with
+   the session, except what it commits to git. Credentials must be supplied
+   to each session via Claude Code project secrets, not stored in the repo.
+
+---
+
+## 3. Permission tiers
+
+Permissions in `.claude/settings.json` use three tiers, mapped to the
+Claude Code permissions schema:
+
+| Tier | Settings key | Behavior | Use for |
+|---|---|---|---|
+| **Silent allow** | `permissions.allow` | Code runs the tool without prompting the Operator. | Read-only commands; idempotent diagnostics; commands whose effects are local to the session sandbox. |
+| **Prompt and confirm** | `permissions.ask` | Operator sees a prompt every time Code attempts the tool and must approve it. | Commands that prepare or simulate state changes (e.g. writing a migration file, generating a Prisma client) but do not yet hit production. Also: Render writes (Stage 6). |
+| **Forbid** | `permissions.deny` | Code cannot invoke the tool, period. Even if `allow`/`ask` would otherwise permit. | Commands that mutate production state without a human in the loop; destructive commands; anything outside the rollout's scope. |
+
+The Stage 0 skeleton at `.claude/settings.json` declares all three arrays
+empty. Subsequent stages populate them per the matrix in
+[Section 4](#4-rollout-status).
+
+---
+
+## 4. Rollout status
+
+| Stage | Title | State | What lands |
+|---|---|---|---|
+| 0 | Governance foundation | **active** | This document; empty `.claude/settings.json` skeleton. No access granted. |
+| 1 | Database read access | not started | `claude_code` Postgres role (read-only); session-start hook; allowlists for read-only `psql` and `prisma` commands. |
+| 2 | Demo-login cleanup migration | not started | The previously-paused Commit C; runs against production using **master** credentials, not the `claude_code` role. |
+| 3 | Migration preparation workflow | not started | `ask`-tier entries for migration-related Prisma commands; `scripts/dry-run-migration.sh` helper; "Code prepares, human applies" formalized. |
+| 4 | Render MCP — research and vet | not started | `docs/RENDER_MCP_EVALUATION.md` only. No MCP configured. |
+| 5 | Render MCP — read-only | not started | Render MCP server configured in project settings; allowlists for read-only Render tools (list services, read deploy status/logs, read env-var **names**). |
+| 6 | Render MCP — selective writes | not started | `ask`-tier entries for trigger-deploy / restart-service / set-env-var. Service deletion, database deletion, billing, team management, plan/region changes are forbidden. `docs/RENDER_OPERATIONS.md` runbook. |
+
+This table is updated as each stage's PR lands.
+
+---
+
+## 5. Capability matrix (current, Stage 0)
+
+What Code **can** do today:
+
+- Read any file in the repo via the Read tool.
+- Edit/write files in the repo via Edit/Write/NotebookEdit tools.
+- Run any shell command via Bash, subject to whatever permission prompts the
+  Operator sees in their session UI.
+- Use the GitHub MCP tools, scoped to `kpunches/Staged-Human-In-Loop-CODA-Importer` only:
+  read/create/comment on issues and PRs, read/create branches, push commits,
+  read commits/tags/releases, read deploy info, etc.
+- Spawn subagents (`Explore`, `Plan`, `general-purpose`, `claude-code-guide`).
+- Use built-in skills declared by the Operator's harness.
+
+What Code **cannot** do today:
+
+- Connect to Postgres (no `DATABASE_URL`, no `claude_code` role exists).
+- Reach Render's API or dashboard in any way.
+- Touch any GitHub resource outside the one allowed repo.
+- Invoke MCP tools other than the GitHub-scoped set above.
+- Bypass any Operator permission prompt.
+
+What Code **must not** do at any stage (forbidden by policy, regardless of
+what the harness would technically allow):
+
+- Apply database migrations to production. Migration files are written by
+  Code; `prisma migrate deploy` against production is run by the Operator.
+- Use master Postgres credentials. Master credentials are only ever held by
+  the Operator. Code uses `claude_code` once that role exists (Stage 1+).
+- Modify Render billing, delete services, delete databases, change service
+  plan or region, or manage team members.
+- Force-push to `main`, delete branches without explicit instruction, rewrite
+  commit history on shared branches, or skip commit hooks.
+- Commit credentials, API keys, connection strings, or secrets to git, even
+  to `.env.local`-style example files. Example files contain placeholder
+  values only.
+
+---
+
+## 6. Credential rotation
+
+The Operator rotates credentials. Code never holds long-lived credentials
+outside the per-session env injection.
+
+### 6.1 Postgres master password
+
+When to rotate: on any suspected leak; after Stage 1 setup; on a regular
+schedule (Operator's discretion).
+
+1. Render dashboard → `wgu-staging-db` → "Reset database password".
+2. Update the `DATABASE_URL` env var on the `wgu-staging-app` web service
+   (Render dashboard → service → Environment).
+3. If the Operator has a local `.env.local` for development, update it there
+   too.
+
+The master password is **not** added to Claude Code project secrets at any
+stage. Code only ever sees the `claude_code` role's connection string.
+
+### 6.2 `claude_code` role password (Stage 1+)
+
+When to rotate: on any suspected leak; on a regular schedule; when an
+Operator suspects a session may have been compromised.
+
+1. Connect as the master role: `psql $MASTER_DATABASE_URL`.
+2. `ALTER USER claude_code WITH PASSWORD '<new>';`
+3. Update the `DATABASE_URL` secret in Claude Code project settings.
+4. Old sessions retain their connection until they're closed. New sessions
+   pick up the new password automatically.
+
+### 6.3 Render API token (Stage 5+)
+
+When to rotate: on any suspected leak; when narrowing scope; when changing
+which Render account the token belongs to.
+
+1. Render dashboard → Account → API Keys → revoke the existing key.
+2. Generate a new key with the narrowest scope per Stage 4's evaluation.
+3. Update the Render token in Claude Code project secrets.
+
+### 6.4 GitHub access
+
+Code's GitHub MCP scope is governed by the GitHub App installation on the
+repo. To narrow or revoke, the Operator manages it from
+`https://github.com/settings/installations` (or the org equivalent).
+
+---
+
+## 7. Kill-switch
+
+Use this procedure when Code's access must be revoked immediately —
+suspected compromise, unintended action, or simply to pause work.
+
+The procedure is layered. Each layer revokes a distinct capability. Use as
+many as the situation warrants; for a true emergency, run all of them.
+
+### Layer 1 — Database access (Stage 1+)
+
+1. Remove `DATABASE_URL` from Claude Code project secrets.
+   - Effect: future sessions cannot connect.
+   - Caveat: an in-flight session retains the env var it was started with
+     until that session ends.
+2. As master, `REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM claude_code;`
+   followed by `DROP USER claude_code;`.
+   - Effect: every session, including in-flight ones, fails on the next
+     query.
+3. Rotate the master password per [6.1](#61-postgres-master-password) as
+   belt-and-suspenders.
+
+### Layer 2 — Render API access (Stage 5+)
+
+1. Render dashboard → Account → API Keys → revoke the Code-issued key.
+2. Remove the token secret from Claude Code project secrets.
+
+### Layer 3 — GitHub access
+
+1. `https://github.com/settings/installations` → the relevant installation
+   → "Suspend" (reversible) or "Uninstall" (full).
+2. Effect: Code loses all repo read/write via the GitHub MCP.
+
+### Layer 4 — Stop the session
+
+1. Close the active Claude Code session in the web UI.
+2. Effect: any in-flight work is interrupted.
+
+After a kill-switch event, the Operator decides whether and how to restore
+access. Restoration follows the original stage sequence — credentials are
+re-issued, secrets re-populated, and a new session verifies the setup
+end-to-end before any further work.
+
+---
+
+## 8. Audit trail expectations
+
+Every action Code takes is recoverable from one or more of these sources.
+The Operator should be able to reconstruct, after the fact, what changed
+and on whose authority.
+
+### 8.1 Git
+
+- Every commit Code authors ends with the Claude Code session URL
+  (`https://claude.ai/code/session_<id>`). The Operator can open the URL
+  to see the full transcript that produced the commit.
+- Branches are namespaced under `claude/...`. Direct pushes to `main` are
+  not Code's responsibility — `main` only changes via PR merge by the
+  Operator.
+
+### 8.2 GitHub
+
+- The GitHub App installation logs every API call Code makes (PR create,
+  comment, push, etc.) in the repo's audit log. Visible at
+  `https://github.com/kpunches/Staged-Human-In-Loop-CODA-Importer/settings/audit-log`
+  (or the personal account audit log).
+
+### 8.3 Postgres (Stage 1+)
+
+- Reads as `claude_code` are distinguishable from application reads
+  (which use the master role) by username in `pg_stat_activity` /
+  `pg_stat_statements` / log lines.
+- Mutations to production are made by the Operator using master
+  credentials, not by Code. They appear in Render's database activity
+  with the master role attribution.
+
+### 8.4 Render (Stage 5+)
+
+- Render's audit log records deploys, env-var changes, and admin actions.
+  Code-initiated deploys (via MCP) appear with the API token's name as
+  the actor; Operator actions appear with the Operator's GitHub account.
+
+### 8.5 Claude Code session transcripts
+
+- Each session URL is a durable record of the conversation, tool calls,
+  and outputs. The Operator should treat the URL list as part of the
+  audit story for any disputed action.
+
+---
+
+## 9. Change control for this document
+
+This document is the contract. Changes to it are themselves a governance
+event:
+
+- Any non-trivial revision (adding or removing a capability, changing a
+  rotation procedure, modifying the kill-switch) lands as part of a stage
+  PR. The PR description must reference the relevant stage.
+- Trivial revisions (typo fixes, clarifications that don't change meaning)
+  may land as standalone PRs. They must still be reviewed by the Operator.
+- The "Last revised" date at the top of the file is updated on every
+  meaningful change.
+- Old versions are recoverable from git history.
