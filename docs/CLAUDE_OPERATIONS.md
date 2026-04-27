@@ -5,12 +5,19 @@ repository's infrastructure (Postgres on Render, the Render platform itself,
 and GitHub). This file is the source of truth. If a behavior is not described
 here, Claude Code should not perform it.
 
-**Status:** Stage 0 of 6 (governance foundation). No infrastructure access has
-been granted yet. See [Rollout status](#rollout-status) below.
+**Status:** Stage 1 of 6 (database read access — PR open). Stage 0 is
+complete. Code's actual database capabilities remain at the Stage 0
+(none) level until the Operator completes the Stage 1 setup steps
+(see [§8.3](#83-postgres-stage-1)).
 
-**Last revised:** 2026-04-27 (Stage 0 initial commit; revised same day for
-review feedback on §4 Stage 1 row, §7 Layer 1 ordering, §8.3 audit
-infrastructure, and §8.5 transcript durability).
+**Last revised:** 2026-04-27 (Stage 1 PR review revision — added
+`NOINHERIT` to the role definition; added `SHOW`-based verification
+commands and a service-restart callout to the §8.3 setup procedure.
+Earlier same-day revision: Stage 1 PR initial commit — role-creation
+SQL, session-start hook, read-only Prisma allowlists, psql `ask`
+tier, and the Stage 1 setup procedure under §8.3. Earliest revision:
+Stage 0 review feedback on §4 Stage 1 row, §7 Layer 1 ordering, §8.3
+audit infrastructure, and §8.5 transcript durability.)
 
 ---
 
@@ -74,8 +81,8 @@ empty. Subsequent stages populate them per the matrix in
 
 | Stage | Title | State | What lands |
 |---|---|---|---|
-| 0 | Governance foundation | **active** | This document; empty `.claude/settings.json` skeleton. No access granted. |
-| 1 | Database read access | not started | `claude_code` Postgres role (read-only); session-start hook; allowlists for read-only `psql` and `prisma` commands; audit configuration check — Operator verifies which of `pg_stat_statements`, `log_statement`, `log_connections` are configurable on the current Render plan and enables the highest-resolution audit available, recording the result in the Stage 1 PR description. See [§8.3](#83-postgres-stage-1). |
+| 0 | Governance foundation | complete (PR #1) | This document; empty `.claude/settings.json` skeleton. No access granted. |
+| 1 | Database read access | **active (PR open)** | `scripts/setup/create-claude-code-role.sql` (read-only role); `.claude/hooks/session-start.sh` (env / deps / reachability check, registered under `hooks.SessionStart`); allowlist entries for `npx prisma migrate status`, `npx prisma db pull`, `npx prisma generate`; `ask`-tier entry for `Bash(psql *)` (the matcher cannot reliably distinguish `SELECT` from destructive queries inside quoted `-c` arguments — see PR description); deny entries for `npx prisma migrate reset`, `npx prisma db push`, and `npx prisma migrate deploy`; Stage 1 setup procedure for Postgres audit infrastructure (`pg_stat_statements`, connection-lifecycle logging, optional statement logging) — Operator runs the SQL, populates the secret, completes the audit-config steps, and records the result in the PR. See [§8.3](#83-postgres-stage-1). |
 | 2 | Demo-login cleanup migration | not started | The previously-paused Commit C; runs against production using **master** credentials, not the `claude_code` role. |
 | 3 | Migration preparation workflow | not started | `ask`-tier entries for migration-related Prisma commands; `scripts/dry-run-migration.sh` helper; "Code prepares, human applies" formalized. |
 | 4 | Render MCP — research and vet | not started | `docs/RENDER_MCP_EVALUATION.md` only. No MCP configured. |
@@ -86,35 +93,74 @@ This table is updated as each stage's PR lands.
 
 ---
 
-## 5. Capability matrix (current, Stage 0)
+## 5. Capability matrix
 
-What Code **can** do today:
+This matrix describes Code's capabilities once each merged stage's setup
+steps are complete (both code merged AND any Operator actions performed).
+Capabilities gated on Operator action are marked with the gate. Until the
+Operator completes a stage's setup, Code's actual capabilities remain at
+the prior stage's level even if a later stage's PR has merged.
+
+### 5.1 What Code can do
+
+**Always (Stage 0+):**
 
 - Read any file in the repo via the Read tool.
 - Edit/write files in the repo via Edit/Write/NotebookEdit tools.
-- Run any shell command via Bash, subject to whatever permission prompts the
-  Operator sees in their session UI.
-- Use the GitHub MCP tools, scoped to `kpunches/Staged-Human-In-Loop-CODA-Importer` only:
-  read/create/comment on issues and PRs, read/create branches, push commits,
-  read commits/tags/releases, read deploy info, etc.
+- Run shell commands via Bash, subject to the permission tiers in
+  `.claude/settings.json` and any prompts the Operator sees in their
+  session UI.
+- Use the GitHub MCP tools, scoped to
+  `kpunches/Staged-Human-In-Loop-CODA-Importer` only: read/create/comment
+  on issues and PRs, read/create branches, push commits, read
+  commits/tags/releases, read deploy info, etc.
 - Spawn subagents (`Explore`, `Plan`, `general-purpose`, `claude-code-guide`).
 - Use built-in skills declared by the Operator's harness.
 
-What Code **cannot** do today:
+**Stage 1 (after Operator runs `scripts/setup/create-claude-code-role.sql`
+and adds the `claude_code` connection string as `DATABASE_URL` in Claude
+Code project secrets):**
 
-- Connect to Postgres (no `DATABASE_URL`, no `claude_code` role exists).
-- Reach Render's API or dashboard in any way.
+- Connect to Postgres as the `claude_code` role. The role has `LOGIN`,
+  `CONNECT`, schema `USAGE`, and `SELECT` on existing and future tables
+  in `public`. It has nothing else — no DDL, no `INSERT`/`UPDATE`/`DELETE`,
+  no `SUPERUSER`/`CREATEDB`/`CREATEROLE`/`REPLICATION`/`BYPASSRLS` flags.
+- Run silent-allowed Prisma diagnostics: `npx prisma migrate status`,
+  `npx prisma db pull`, `npx prisma generate`. These are read-only and
+  do not require Operator approval per call.
+- Run ad-hoc `psql` commands against the database, subject to per-call
+  Operator approval (`ask` tier). The matcher cannot enforce a
+  SELECT-only restriction at the settings level (Bash patterns cannot
+  reliably see inside quoted `-c` arguments — see Claude Code's
+  permissions docs); the actual safety guarantee comes from the role's
+  read-only Postgres grants, not from the prompt.
+
+### 5.2 What Code cannot do
+
+**Stage 0+:**
+
+- Reach Render's API or dashboard in any way (Stages 5–6 add this).
 - Touch any GitHub resource outside the one allowed repo.
 - Invoke MCP tools other than the GitHub-scoped set above.
 - Bypass any Operator permission prompt.
 
-What Code **must not** do at any stage (forbidden by policy, regardless of
-what the harness would technically allow):
+**Stage 0 (and Stage 1 until Operator setup completes):**
+
+- Connect to Postgres at all (no `DATABASE_URL`, no `claude_code` role).
+
+### 5.3 What Code must not do at any stage
+
+These are forbidden by policy. Even if the harness or the role's grants
+would technically allow the action, Code does not perform it.
 
 - Apply database migrations to production. Migration files are written by
   Code; `prisma migrate deploy` against production is run by the Operator.
 - Use master Postgres credentials. Master credentials are only ever held by
   the Operator. Code uses `claude_code` once that role exists (Stage 1+).
+- Attempt to write through the `claude_code` role. The role's grants are
+  read-only — any write would be rejected by Postgres anyway — but Code
+  must not attempt one regardless. If Code believes a write is needed, it
+  prepares a migration file for the Operator to apply (see §2 principle 1).
 - Modify Render billing, delete services, delete databases, change service
   plan or region, or manage team members.
 - Force-push to `main`, delete branches without explicit instruction, rewrite
@@ -303,17 +349,85 @@ configuring them is a Stage 1 deliverable (see [§4](#4-rollout-status)).
   roles. Volume is much lower than statement logging and is the
   minimum useful baseline.
 
-**Stage 1 action (the Operator does this):** as part of the Stage 1
-setup, the Operator determines what is configurable on the current
-Render plan and enables the highest-resolution audit available, then
-records the result in the Stage 1 PR description. If the free plan does
-not support an adequate audit baseline, that becomes a documented gap
-and a reason to either upgrade the plan or accept the limitation
-explicitly.
+**Stage 1 setup procedure (the Operator does this; Code does not):**
 
-**Mutations:** changes to production are made by the Operator using
-master credentials, not by Code. They appear in whatever audit data the
-database is configured to capture, attributed to the master role.
+These steps are run after the Stage 1 PR is merged and `scripts/setup/create-claude-code-role.sql`
+has been applied, but before the Stage 1 gate is declared met.
+
+1. **Confirm `pg_stat_statements` is in `shared_preload_libraries`.**
+   - In the Render dashboard for `wgu-staging-db`, open the database's
+     settings page and look for advanced Postgres parameters (the exact
+     UI label varies by Render plan). Render's paid plans typically
+     include `pg_stat_statements` in `shared_preload_libraries` by
+     default; the free plan may not expose this control at all.
+   - Verify from the database side:
+     ```sh
+     psql "$MASTER_DATABASE_URL" -c "SHOW shared_preload_libraries;"
+     ```
+     `pg_stat_statements` must appear in the returned comma-separated
+     list. If it does not, step 2 will fail with an error like
+     `extension "pg_stat_statements" is not allowed because library is
+     not loaded`.
+   - If the parameter is not configurable on the current plan, skip to
+     step 5 and document the gap.
+
+2. **Enable the `pg_stat_statements` extension** (assuming step 1
+   succeeded):
+   - As master:
+     ```sh
+     psql "$MASTER_DATABASE_URL" \
+       -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
+     ```
+   - Verify:
+     ```sh
+     psql "$MASTER_DATABASE_URL" \
+       -c "SELECT count(*) FROM pg_stat_statements;"
+     ```
+     should succeed (the count starts at 0 or low).
+
+> **Note for steps 3 and 4 verifications.** Some Render Postgres plans
+> require a service restart for `log_*` parameter changes to take
+> effect. If `SHOW` returns the old value immediately after toggling
+> the dashboard setting, restart the database service from the Render
+> dashboard and re-run the verification.
+
+3. **Enable connection-lifecycle logging.** This is the minimum useful
+   audit baseline and is much lower volume than statement logging.
+   - Render dashboard → `wgu-staging-db` → settings → set
+     `log_connections = on` and `log_disconnections = on`.
+   - Verify both took effect:
+     ```sh
+     psql "$MASTER_DATABASE_URL" -c "SHOW log_connections;"
+     psql "$MASTER_DATABASE_URL" -c "SHOW log_disconnections;"
+     ```
+     Both must return `on`. (See the restart note above if either
+     still returns `off`.)
+
+4. **Statement-level logging (optional, plan-dependent).** Volume is
+   high; only enable if the plan exposes the parameter and the Operator
+   wants every-query attribution.
+   - Render dashboard → `wgu-staging-db` → settings → set
+     `log_statement = 'mod'` (writes only) or `'all'` (everything).
+   - Verify:
+     ```sh
+     psql "$MASTER_DATABASE_URL" -c "SHOW log_statement;"
+     ```
+     Must return `mod` or `all` to match the dashboard setting. (See
+     the restart note above if it still returns `none`.)
+
+5. **Record the result in the Stage 1 PR description.** Include:
+   - Which of the three audit levels above were enabled.
+   - Which were unavailable on the current plan, if any.
+   - Any decisions to defer audit upgrades, with reasoning.
+
+   The Stage 1 audit baseline is whatever was achievable here. If it is
+   lower than what compliance or operational-incident response would
+   require, that is a known gap to either upgrade the plan to address
+   or document explicitly as accepted risk.
+
+**Mutations to production** are made by the Operator using master
+credentials, not by Code. They appear in whatever audit data the
+database is configured to capture above, attributed to the master role.
 
 ### 8.4 Render (Stage 5+)
 
