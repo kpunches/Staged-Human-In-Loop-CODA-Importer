@@ -32,8 +32,6 @@ services:
         sync: false
       - key: R2_PUBLIC_URL
         sync: false
-      - key: ANTHROPIC_API_KEY
-        sync: false
       - key: ALLOWED_EMAIL_DOMAIN
         value: wgu.edu
 

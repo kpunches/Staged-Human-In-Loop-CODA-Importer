@@ -17,7 +17,6 @@ full sign-off by an Academic Director.
 | ORM | Prisma |
 | File storage | Cloudflare R2 |
 | Email | Resend |
-| AI loader | Anthropic API (claude-sonnet-4) |
 | Deployment | Render |
 
 ---
@@ -45,7 +44,6 @@ Required env vars:
 - `RESEND_API_KEY` — from resend.com dashboard
 - `RESEND_FROM_EMAIL` — a verified sender domain in Resend
 - `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME` — from Cloudflare dashboard
-- `ANTHROPIC_API_KEY` — from console.anthropic.com
 - `PIPELINE_API_TOKEN` — generate with `openssl rand -base64 32` (used by Claude pipeline)
 
 ### 3. Set up the database
@@ -111,7 +109,6 @@ The `render.yaml` in the root configures everything automatically:
    - `RESEND_API_KEY`
    - `RESEND_FROM_EMAIL`
    - `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`
-   - `ANTHROPIC_API_KEY`
    - `PIPELINE_API_TOKEN`
 
 The build command runs `db:migrate` automatically on every deploy.

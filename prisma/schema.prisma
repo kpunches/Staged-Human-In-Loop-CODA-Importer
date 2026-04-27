@@ -114,12 +114,13 @@ enum WorkflowType {
 }
 
 enum ReviewStatus {
-  PENDING       // extraction done, awaiting review
-  IN_REVIEW     // reviewer has opened it
-  CHANGES_NEEDED // reviewer flagged issues
-  APPROVED      // AD signed off, ready to write
-  WRITTEN       // successfully written to Coda
-  FAILED        // Coda write failed
+  PENDING            // extraction done, awaiting review
+  IN_REVIEW          // reviewer has opened it
+  CHANGES_NEEDED     // reviewer flagged issues
+  APPROVED           // AD signed off, ready for orchestrator (terminal until writer exists)
+  WRITTEN            // successfully written to Coda (only set by the verified write path; see NEEDS_REVALIDATION)
+  FAILED             // Coda write failed
+  NEEDS_REVALIDATION // status was set by the legacy LLM loader and was never verified end-to-end
 }
 
 // ─── Field-level approvals ────────────────────────────────────────────────────

@@ -2,12 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { getSession } from "@/lib/session"
 import { prisma } from "@/lib/db"
 import { downloadJson, uploadJson, extractionKey } from "@/lib/storage"
-import Anthropic from "@anthropic-ai/sdk"
 import { z } from "zod"
 
 const schema = z.object({ reviewId: z.string() })
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 interface ExtractionField {
   field_name: string
@@ -120,73 +117,16 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  triggerCodaLoader(review, approvedExtraction, reviewId).catch(console.error)
+  // TODO(orchestrator): kick the pure-Python orchestrator here once it exists.
+  // The orchestrator is responsible for: preflight (column ID / lookup row /
+  // select-list validation against live Coda) → certification check → atomic
+  // writer (parent + children + junctions with rollback) → read-back verifier
+  // (char-level diff with Coda normalization, junction integrity) → audit log
+  // entries at every step. On success it sets Review.status = WRITTEN. On any
+  // verifier mismatch it auto-rolls-back and sets status = FAILED.
+  //
+  // Until that pipeline exists, an APPROVED review is the terminal state and
+  // no bytes flow into Coda from this app.
 
   return NextResponse.json({ ok: true })
-}
-
-async function triggerCodaLoader(
-  review: { workflowType: string; docId: string; programCode: string; courseCode: string | null },
-  extraction: ExtractionJson,
-  reviewId: string
-) {
-  const workflowPrompts: Record<string, string> = {
-    CCW: "You are running the ccw-coda-import skill.",
-    SSD: "You are running the ssd-coda-import skill.",
-    VS: "You are running the pdvs-coda-import skill.",
-    SCOPE_TABLE: "You are running the es-scope-import skill.",
-    LR: "You are running the lr-tools-coda-import skill.",
-    PDOW: "You are running the pdow-coda-mapping skill.",
-  }
-
-  const systemPrompt = workflowPrompts[review.workflowType] ?? "You are a Coda import assistant."
-
-  const userPrompt = `
-Load the following approved extraction JSON into Coda.
-
-Doc ID: ${review.docId}
-Program: ${review.programCode}
-Course: ${review.courseCode ?? "N/A"}
-Workflow: ${review.workflowType}
-
-The human_review block confirms all fields have been approved by a WGU Academic Director.
-
-Extraction JSON:
-${JSON.stringify(extraction, null, 2)}
-
-Load all records into the appropriate Coda tables. Follow the ${review.workflowType} import skill exactly.
-`
-
-  try {
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 8096,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
-    })
-
-    const success = response.stop_reason === "end_turn"
-    await prisma.review.update({
-      where: { id: reviewId },
-      data: {
-        status: success ? "WRITTEN" : "FAILED",
-        codaWrittenAt: success ? new Date() : undefined,
-      },
-    })
-
-    await prisma.auditLog.create({
-      data: {
-        reviewId,
-        userId: "system",
-        action: success ? "coda.written" : "coda.failed",
-        detail: { stop_reason: response.stop_reason },
-      },
-    })
-  } catch (err) {
-    await prisma.review.update({
-      where: { id: reviewId },
-      data: { status: "FAILED" },
-    })
-    throw err
-  }
 }
