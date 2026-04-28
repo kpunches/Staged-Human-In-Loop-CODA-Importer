@@ -50,6 +50,11 @@ BEGIN;
 -- this preserves the existing password if the role is already present —
 -- password rotation goes through the procedure in CLAUDE_OPERATIONS.md §6.2,
 -- not through this script.
+-- password_encryption is set to scram-sha-256 for the duration of the CREATE
+-- ROLE so the server hashes the supplied password with SCRAM rather than the
+-- deprecated MD5 scheme. SET LOCAL scopes the change to this transaction.
+SET LOCAL password_encryption = 'scram-sha-256';
+
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'claude_code') THEN
@@ -68,8 +73,11 @@ $$;
 
 -- ─── 2. Database-level grants ───────────────────────────────────────────────
 -- CONNECT lets the role open a session against this database. Without this,
--- everything else is moot.
-GRANT CONNECT ON DATABASE CURRENT_DATABASE() TO claude_code;
+-- everything else is moot. The database name is hardcoded because GRANT
+-- requires a literal identifier (CURRENT_DATABASE() is a function and is not
+-- accepted in this position). If this script is ever re-used against a
+-- different database, update the name here.
+GRANT CONNECT ON DATABASE wgu_staging TO claude_code;
 
 -- ─── 3. Schema-level grants ─────────────────────────────────────────────────
 -- USAGE on the public schema lets the role see and reference objects in it.
